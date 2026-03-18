@@ -1,0 +1,194 @@
+-- [[ CUBNIT FLY - ULTRA HYBRID V5 (NEW DESIGN & DRAGGABLE) ]] --
+local plr = game.Players.LocalPlayer
+local UIS = game:GetService("UserInputService")
+local char = plr.Character or plr.CharacterAdded:Wait()
+local hum = char:WaitForChild("Humanoid")
+
+local FlySpeed = 50 
+local flying = false
+local ctrl = {f = 0, b = 0, l = 0, r = 0}
+local lastctrl = {f = 0, b = 0, l = 0, r = 0}
+
+-- [[ CONFIGURAÇÕES VISUAIS (ASSET IDs) ]] --
+local ID_BTN_ATIVAR = "rbxassetid://133850254737352"
+local ID_BTN_DESATIVAR = "rbxassetid://130630403029507"
+local ID_ANALOGICO = "rbxassetid://125548038233352"
+
+-- [[ CONFIGURAÇÕES DE ANIMAÇÃO ]] --
+local ANIMS = {
+    IDLE = {id = 119158383241362, speed = 1, priority = Enum.AnimationPriority.Action4, freezeAt = nil}, 
+    WALK = {id = 10714177846, speed = 4.65, priority = Enum.AnimationPriority.Action, freezeAt = 0.95}, 
+    RUN  = {id = 10147823318, speed = 4.11, priority = Enum.AnimationPriority.Action, freezeAt = 1.1}   
+}
+
+local Assets = Instance.new("ScreenGui", plr.PlayerGui)
+Assets.Name = "Cubnit_Fly_v5_Final"
+Assets.ResetOnSpawn = false
+
+-- [[ NOVO BOTÃO DE ATIVAÇÃO (ARRASTÁVEL) ]] --
+local MainBtn = Instance.new("ImageButton", Assets)
+MainBtn.Name = "ToggleFly"
+MainBtn.Size = UDim2.new(0, 80, 0, 80)
+MainBtn.Position = UDim2.new(0.02, 0, 0.85, 0)
+MainBtn.BackgroundTransparency = 1
+MainBtn.Image = ID_BTN_ATIVAR
+MainBtn.ZIndex = 10
+
+-- Tornar o botão arrastável de forma suave
+local dragging, dragInput, dragStart, startPos
+local function update(input)
+    local delta = input.Position - dragStart
+    MainBtn.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+end
+MainBtn.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        dragging = true; dragStart = input.Position; startPos = MainBtn.Position
+        input.Changed:Connect(function() if input.UserInputState == Enum.UserInputState.End then dragging = false end end)
+    end
+end)
+MainBtn.InputChanged:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then dragInput = input end
+end)
+UIS.InputChanged:Connect(function(input) if input == dragInput and dragging then update(input) end end)
+
+-- [[ NOVO ANALÓGICO DE CONTROLE ]] --
+local Fly_Pad = Instance.new("ImageLabel", Assets)
+Fly_Pad.Name = "Fly_Pad"
+Fly_Pad.BackgroundTransparency = 1; Fly_Pad.ZIndex = 2
+Fly_Pad.Position = UDim2.new(0.1, 0, 0.45, 0); Fly_Pad.Size = UDim2.new(0, 160, 0, 160)
+Fly_Pad.Image = ID_ANALOGICO
+Fly_Pad.Visible = false
+
+-- Botões de detecção invisíveis sobre o novo design do analógico
+local function createInvisibleBtn(n, p, s)
+    local b = Instance.new("TextButton", Fly_Pad)
+    b.Name = n; b.Position = p; b.Size = s; b.BackgroundTransparency = 1; b.Text = ""
+    return b
+end
+local FlyW = createInvisibleBtn("W", UDim2.new(0.35,0,0,0), UDim2.new(0.3,0,0.4,0))
+local FlyS = createInvisibleBtn("S", UDim2.new(0.35,0,0.6,0), UDim2.new(0.3,0,0.4,0))
+local FlyA = createInvisibleBtn("A", UDim2.new(0,0,0.35,0), UDim2.new(0.4,0,0.3,0))
+local FlyD = createInvisibleBtn("D", UDim2.new(0.6,0,0.35,0), UDim2.new(0.4,0,0.3,0))
+
+-- [[ SISTEMA DE ANIMAÇÃO HÍBRIDO (15 DÍGITOS + FREEZE) ]] --
+local currentTrack = nil
+local lastAnimId = nil
+
+local function PlayUniversalAnim(animData)
+    local char = plr.Character
+    if not char or not char:FindFirstChild("Humanoid") then return end
+    local hum = char.Humanoid
+    
+    local animIdStr = "rbxassetid://"..tostring(animData.id)
+    if lastAnimId == animIdStr then return end
+    lastAnimId = animIdStr
+    
+    if currentTrack then currentTrack:Stop(0.3) end
+
+    local success, asset = pcall(function() return game:GetObjects(animIdStr)[1] end)
+    
+    if success and asset and asset:IsA("Animation") then
+        currentTrack = hum:LoadAnimation(asset)
+    else
+        local animObj = Instance.new("Animation"); animObj.AnimationId = animIdStr
+        currentTrack = hum:LoadAnimation(animObj)
+    end
+
+    if currentTrack then
+        currentTrack.Priority = animData.priority
+        currentTrack:Play(0.3)
+        currentTrack:AdjustSpeed(animData.speed)
+        
+        if animData.freezeAt then
+            local thisId = animIdStr
+            task.delay(animData.freezeAt, function()
+                if currentTrack and lastAnimId == thisId then
+                    currentTrack:AdjustSpeed(0.00000001)
+                end
+            end)
+        end
+    end
+end
+
+-- [[ LÓGICA DE VOO ]] --
+local function Fly()
+    local char = plr.Character
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    local speed = 0
+    local bg = Instance.new("BodyGyro", hrp)
+    bg.P = 9e4; bg.maxTorque = Vector3.new(9e9, 9e9, 9e9)
+    local bv = Instance.new("BodyVelocity", hrp)
+    bv.maxForce = Vector3.new(9e9, 9e9, 9e9); bv.velocity = Vector3.new(0, 0.1, 0)
+    
+    PlayUniversalAnim(ANIMS.IDLE)
+
+    task.spawn(function()
+        while flying do
+            task.wait()
+            char.Humanoid.PlatformStand = true
+            local isMoving = (ctrl.l + ctrl.r ~= 0 or ctrl.f + ctrl.b ~= 0)
+            
+            if isMoving then
+                speed = math.min(speed + FlySpeed * 0.10, FlySpeed)
+                if ctrl.f == 1 then PlayUniversalAnim(ANIMS.WALK) else PlayUniversalAnim(ANIMS.RUN) end
+            else
+                speed = math.max(speed - FlySpeed * 0.10, 0)
+                PlayUniversalAnim(ANIMS.IDLE)
+            end
+            
+            local cam = workspace.CurrentCamera.CoordinateFrame
+            if isMoving then
+                bv.velocity = ((cam.lookVector * (ctrl.f+ctrl.b)) + ((cam * CFrame.new(ctrl.l+ctrl.r,(ctrl.f+ctrl.b)*.2,0).p) - cam.p))*speed
+                lastctrl = {f = ctrl.f, b = ctrl.b, l = ctrl.l, r = ctrl.r}
+            elseif speed ~= 0 then
+                bv.velocity = ((cam.lookVector * (lastctrl.f+lastctrl.b)) + ((cam * CFrame.new(lastctrl.l+lastctrl.r,(lastctrl.f+lastctrl.b)*.2,0).p) - cam.p))*speed
+            else
+                bv.velocity = Vector3.new(0, 0.1, 0)
+            end
+            bg.cframe = cam * CFrame.Angles(-math.rad((ctrl.f+ctrl.b)*50*speed/FlySpeed),0,0)
+        end
+        
+        bg:Destroy(); bv:Destroy()
+        if char:FindFirstChild("Humanoid") then
+            char.Humanoid.PlatformStand = false
+            char.Humanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
+        end
+        if currentTrack then currentTrack:Stop(0.5) end
+        lastAnimId = nil
+    end)
+end
+
+-- [[ CONTROLES E ALTERNÂNCIA VISUAL ]] --
+MainBtn.MouseButton1Click:Connect(function()
+    flying = not flying
+    if flying then
+        MainBtn.Image = ID_BTN_DESATIVAR -- Muda para ícone de desativar
+        Fly_Pad.Visible = true
+        Fly()
+    else
+        MainBtn.Image = ID_BTN_ATIVAR -- Volta para ícone de ativar
+        Fly_Pad.Visible = false
+    end
+end)
+
+-- Teclado
+UIS.InputBegan:Connect(function(i, g)
+    if g or not flying then return end
+    if i.KeyCode == Enum.KeyCode.W then ctrl.f = 1
+    elseif i.KeyCode == Enum.KeyCode.S then ctrl.b = -1
+    elseif i.KeyCode == Enum.KeyCode.A then ctrl.l = -1
+    elseif i.KeyCode == Enum.KeyCode.D then ctrl.r = 1 end
+end)
+UIS.InputEnded:Connect(function(i)
+    if i.KeyCode == Enum.KeyCode.W then ctrl.f = 0
+    elseif i.KeyCode == Enum.KeyCode.S then ctrl.b = 0
+    elseif i.KeyCode == Enum.KeyCode.A then ctrl.l = 0
+    elseif i.KeyCode == Enum.KeyCode.D then ctrl.r = 0 end
+end)
+
+-- Analógico Touch
+local function connectPad(btn, f, b, l, r)
+    btn.MouseButton1Down:Connect(function() if flying then ctrl.f,ctrl.b,ctrl.l,ctrl.r = f,b,l,r end end)
+    btn.MouseButton1Up:Connect(function() if flying then ctrl.f,ctrl.b,ctrl.l,ctrl.r = 0,0,0,0 end end)
+end
+connectPad(FlyW, 1, 0, 0, 0); connectPad(FlyS, 0, -1, 0, 0); connectPad(FlyA, 0, 0, -1, 0); connectPad(FlyD, 0, 0, 0, 1)
